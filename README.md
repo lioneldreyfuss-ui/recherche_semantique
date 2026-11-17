@@ -2,7 +2,7 @@
 
 Retrouver ses documents par leur sens, dans un conteneur chiffré, sans que rien ne quitte l'ordinateur.
 
-Ce dépôt ne contient pas de logiciel. Il contient une **recette** : un texte, le fichier [PROMPT.md](PROMPT.md), que vous donnez à un assistant d'IA (Claude, ChatGPT, Mistral…) pour qu'il vous fabrique l'outil. Vous obtenez un fichier HTML unique, que vous ouvrez dans votre navigateur.
+Ce dépôt ne contient pas de logiciel. Il contient une **recette** : un texte, le fichier prompt, que vous donnez à un assistant d'IA (Claude, ChatGPT, Mistral…) pour qu'il vous fabrique l'outil. Vous obtenez un fichier HTML unique, que vous ouvrez dans votre navigateur.
 
 ## À quoi sert l'outil
 
