@@ -24,7 +24,7 @@ Pour les avocats et, plus largement, les professionnels soumis au secret qui ran
 
 ## Mode d'emploi
 
-1. **Copiez le prompt.** Ouvrez [PROMPT.md](PROMPT.md), puis cliquez sur l'icône « Copy raw file », en haut à droite du texte.
+1. **Copiez le prompt.** Dépliez la section [« Le prompt à copier »](#le-prompt-à-copier), plus bas sur cette page, puis cliquez sur l'icône de copie, en haut à droite de la zone grisée. Le même texte, mis en forme pour la lecture, se trouve dans [PROMPT.md](PROMPT.md).
 2. **Donnez-le à un assistant d'IA.** Collez-le dans une nouvelle conversation et envoyez-le. Le prompt ne contient aucune donnée vous concernant : vous ne transmettez rien de confidentiel à cette étape.
 3. **Enregistrez le fichier obtenu.** L'assistant vous rend un fichier `recherche-semantique.html`. Enregistrez-le, de préférence dans votre conteneur chiffré.
 4. **Ouvrez-le dans Chrome ou Edge.** Un double-clic suffit, si l'un de ces navigateurs est votre navigateur par défaut.
@@ -34,6 +34,224 @@ Pour les avocats et, plus largement, les professionnels soumis au secret qui ran
 **La première indexation est longue, et c'est normal.** Pour un conteneur entier, comptez environ deux heures : c'est la durée mesurée sur un volume de près de 19 000 fichiers, avec un ordinateur ancien. Elle varie selon le nombre de fichiers, la vitesse du disque et la puissance de la machine. L'outil lit chaque document et le fait analyser par le modèle, sur un seul cœur du processeur. Ce temps ne se paie qu'une fois : les ouvertures suivantes ne traitent que les fichiers nouveaux ou modifiés, et ne prennent que quelques minutes au plus. Pendant la première indexation, laissez l'onglet ouvert et désactivez la mise en veille de l'ordinateur.
 
 Les fois suivantes, il suffit de monter le conteneur, d'ouvrir le fichier HTML et de redéposer le lecteur.
+
+## Le prompt à copier
+
+Cliquez sur la ligne ci-dessous pour déplier le prompt, puis sur l'icône de copie, en haut à droite de la zone grisée. Collez-le tel quel dans une nouvelle conversation avec un assistant d'IA.
+
+<details>
+<summary><strong>Afficher le prompt</strong></summary>
+
+````text
+# Recherche sémantique locale — prompt de fabrication
+
+Je suis avocat. Fabrique-moi une application, « Recherche sémantique », sous la forme d'**un seul fichier HTML** que j'ouvre d'un double-clic dans Chrome ou Edge, sur Windows, Mac ou Linux. Je ne veux rien installer : ni Python, ni serveur, ni extension.
+
+L'application retrouve mes documents par leur sens, et non par des mots exacts. Je tape « courrier de relance au client pour un retard de paiement » et elle me propose les cinq fichiers les plus proches, même si le bon s'appelle `scan_0047.pdf` ou `template_v3_final.docx`. Un clic sur un résultat ouvre le fichier dans son application (Word, Excel, le lecteur PDF…).
+
+Mes dossiers professionnels sont rangés dans des conteneurs chiffrés VeraCrypt, sur un disque externe. Je monte le conteneur sur une lettre de lecteur qui change d'une fois à l'autre. L'application doit donc fonctionner avec un volume amovible et chiffré, dont la lettre n'est jamais la même, et ne rien laisser sur le disque de l'ordinateur.
+
+Mes documents sont confidentiels : aucun fichier, aucun extrait, aucun nom de fichier ne doit jamais quitter mon ordinateur. Tout le traitement se fait dans le navigateur. Seuls les outils (trois bibliothèques et un petit modèle de recherche) sont téléchargés depuis Internet.
+
+Les choix techniques ci-dessous ont déjà été testés sur un volume réel de près de 19 000 fichiers : applique-les tels quels, sans les discuter ni proposer d'alternative.
+
+---
+
+## 1. Contraintes générales
+
+- **Un seul fichier HTML**, ouvert en local (adresse `file:///…`). Pas de serveur, pas de backend, pas de fichier annexe.
+- **Navigateurs** : Chrome et Edge, qui disposent de l'API File System Access. Si `window.showDirectoryPicker` n'existe pas (Firefox, Safari, Brave), la page affiche : « Ce navigateur ne gère pas l'accès aux dossiers. Ouvrez ce fichier dans Chrome ou Edge. »
+- **Bibliothèques**, chargées depuis un CDN, en versions fixes :
+  - JSZip 3.10.1 : `https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js` (balise `<script>` classique) ;
+  - Transformers.js 3.5.1 : `https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.1` (import dynamique) ;
+  - pdf.js 4.10.38 : `https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs` et son worker `pdf.worker.min.mjs` (import dynamique, au premier PDF rencontré).
+- **Aucun autre appel réseau** : pas de statistiques, pas de police externe, pas de feuille de style externe, aucun envoi de données.
+- **Interface en français**, sobre : fond blanc, police système, colonne centrée d'environ 760 px, utilisable sur un petit écran.
+- **Code commenté en français.**
+- **L'application ne modifie, ne déplace, ne renomme et ne supprime jamais un fichier du volume.** Elle n'écrit que dans son propre dossier d'index (voir section 3).
+
+## 2. Choisir le volume
+
+Au lancement, la page affiche un statut (« Choisissez le volume à indexer. ») et une grande zone de dépôt :
+
+> **Glissez ici le lecteur de votre conteneur**
+> Depuis « Ce PC » dans l'Explorateur, faites glisser le lecteur (ex. G:) sur ce cadre.
+> [Ou choisir un dossier…]
+
+Pendant que l'utilisateur choisit, le modèle commence à se charger en arrière-plan.
+
+**Glisser-déposer (méthode principale).** C'est le seul moyen d'obtenir la racine d'un lecteur dans Chrome : le sélecteur de dossier refuse les racines de lecteurs.
+- Dans l'événement `drop`, appeler `e.dataTransfer.items[0].getAsFileSystemHandle()` **immédiatement, avant tout `await`** : sinon les données du glisser-déposer ne sont plus accessibles.
+- Sous Windows, quand on dépose un lecteur, le nom de fichier transmis (`e.dataTransfer.files[0].name`) est de la forme `G_drive`. En extraire la lettre : c'est ainsi que l'application connaît l'emplacement du volume sans rien demander.
+- Si l'objet déposé est un fichier et non un dossier : « Déposez un lecteur ou un dossier, pas un fichier. »
+
+**Bouton « Ou choisir un dossier… »** : `showDirectoryPicker({ mode: "readwrite", id: "recherche-semantique" })`. Si l'utilisateur annule, ne rien afficher ; pour toute autre erreur, afficher « Dossier refusé : » suivi du message.
+
+**Dossiers refusés par Chrome.** Par sécurité, Chrome refuse certains dossiers avec un message indiquant qu'ils « contiennent des fichiers système », même quand c'est faux : la racine des lecteurs, le dossier personnel, Documents, Téléchargements, Bureau et, sur Mac, la Bibliothèque. Il n'existe aucun réglage pour lever ce blocage. L'application ne doit pas chercher à le contourner ; le mode d'emploi à l'écran indique d'utiliser le glisser-déposer ou de choisir un sous-dossier.
+
+**Droit d'écriture.** Après le choix, vérifier `queryPermission({ mode: "readwrite" })` et, puisqu'on est dans un geste de l'utilisateur, demander `requestPermission` si besoin. Si l'écriture est refusée (ou si le volume est monté en lecture seule) :
+- l'index est construit et utilisable, mais seulement en mémoire, pour la session ;
+- **rien n'est écrit ailleurs**, en particulier pas dans le stockage du navigateur ;
+- le statut le signale (« index non enregistré : autorisation d'écriture refusée ») et un bouton « Autoriser l'enregistrement de l'index dans le volume » permet de réessayer.
+
+**Après le choix**, la zone de dépôt disparaît au profit d'une ligne :
+- « Volume : G: » (ou le nom du dossier) ;
+- un champ « Emplacement », prérempli avec `G:\` quand la lettre est connue, sinon vide, avec l'exemple « G: ou /Volumes/… ». Sur Mac et Linux, la lettre n'existe pas : l'utilisateur tape une fois l'emplacement (`/Volumes/veracrypt1`, `/media/…`). Le navigateur le mémorise dans `localStorage`, sous une clé construite avec le nom du dossier choisi. **C'est la seule chose mémorisée par le navigateur** ;
+- un lien « Changer de volume », qui recharge la page (avec confirmation si une indexation est en cours).
+
+## 3. L'index
+
+**Emplacement.** L'index est enregistré **dans le volume indexé lui-même**, dans un dossier `.recherche-semantique` créé à sa racine. Ainsi, il reste chiffré quand le conteneur est démonté, il suit le conteneur d'une machine à l'autre, et aucun nom de fichier professionnel n'est écrit sur le disque de l'ordinateur.
+
+**Interdit** : stocker les chemins, les vecteurs ou le moindre texte des documents dans `localStorage`, IndexedDB, le système de fichiers privé du navigateur (OPFS) ou tout autre endroit hors du volume.
+
+**Chemins relatifs.** Chaque fichier est identifié par son chemin relatif à la racine choisie, avec `/` comme séparateur (`Clients/Dupont/devis.docx`). Jamais de lettre de lecteur ni de chemin absolu dans l'index : c'est ce qui permet de monter le conteneur sur G: un jour et sur K: le lendemain sans rien réindexer. La lettre n'est ajoutée qu'au moment d'afficher les résultats.
+
+**Contenu : deux fichiers.**
+- `index.json` : `{ version, extractorVersion, dim, model, timestamp, paths, mtimes }`. `paths` est la liste des chemins relatifs, `mtimes` la date de modification de chaque fichier (`File.lastModified`) au moment de son indexation.
+- `vectors.bin` : tous les vecteurs bout à bout, en `Float32`, 384 valeurs par fichier, dans le même ordre que `paths`.
+- L'index ne contient **aucun texte extrait** des documents : seulement les chemins, les dates et les vecteurs.
+
+**Écriture.** Écrire `vectors.bin` puis `index.json`, chacun avec `createWritable()` puis `close()` : Chrome écrit dans un fichier temporaire et ne remplace l'ancien qu'à la fermeture, ce qui évite un fichier à moitié écrit.
+
+**Lecture et contrôle de cohérence.** Au chargement, vérifier que `version`, `extractorVersion` et `dim` correspondent aux constantes du code, et que le nombre de vecteurs est égal au nombre de chemins et de dates. Si quelque chose ne correspond pas (index absent, illisible, interrompu entre l'écriture des deux fichiers, ancien format), considérer qu'il n'y a pas d'index et tout réindexer, sans message d'erreur.
+
+**Versions.** `INDEX_VERSION = 1`, `EXTRACTOR_VERSION = 1`. Augmenter `EXTRACTOR_VERSION` quand on change la façon d'extraire le texte force une réindexation complète.
+
+## 4. Mise à jour différentielle
+
+À chaque ouverture d'un volume :
+
+1. Charger l'index existant. La recherche est utilisable dès ce moment, sur l'ancien index.
+2. Parcourir tout le volume (voir section 5). Afficher « Analyse du volume… N fichiers trouvés », mis à jour tous les 500 fichiers.
+3. Pour chaque fichier déjà indexé : s'il existe toujours et que sa date de modification est **identique** à celle enregistrée, garder son vecteur. Sinon, il sera réencodé. La comparaison se fait fichier par fichier, et non par rapport à la date globale de l'index : un fichier restauré dans une ancienne version est ainsi détecté.
+4. Encoder les fichiers nouveaux ou modifiés. Retirer de l'index les fichiers disparus.
+5. Si rien n'a changé, réenregistrer simplement l'index (nouvel horodatage) et afficher « Index chargé — N fichiers indexés ».
+
+**Pendant l'encodage :**
+- traiter les fichiers par lots de 32 ;
+- après chaque lot, mettre à jour l'index en mémoire, pour que la recherche porte déjà sur les fichiers traités ;
+- afficher « Indexation en cours… 736 / 18 956 fichiers (≈ 203 / min) », nombres au format français ;
+- **sauvegarde intermédiaire tous les 1 500 fichiers encodés**, puis une sauvegarde finale. Une interruption (onglet fermé, mise en veille, conteneur démonté) ne fait perdre que les fichiers traités depuis la dernière sauvegarde ; la fois suivante, la mise à jour reprend là où elle s'était arrêtée ;
+- tant qu'une indexation est en cours, la fermeture de l'onglet déclenche l'avertissement standard du navigateur (`beforeunload`).
+
+**Bouton « Réindexer tout »**, discret, sous le champ de recherche : après confirmation (« Relire tous les fichiers du volume ? Cela peut prendre un moment. »), il ignore l'index existant et réencode tout. Il est désactivé pendant une indexation. Une seule indexation à la fois.
+
+**Volume démonté pendant l'indexation.** Les lectures et écritures échouent. Arrêter proprement l'indexation et afficher un message clair, par exemple « Le volume n'est plus accessible. L'index enregistré à la dernière sauvegarde reste valable. ». Ne jamais tenter d'écrire l'index ailleurs.
+
+## 5. Parcours du volume
+
+- Parcourir récursivement le dossier choisi.
+- Ignorer les fichiers et dossiers dont le nom commence par `.` (ce qui exclut aussi `.recherche-semantique`) et les fichiers temporaires d'Office, qui commencent par `~$`.
+- Ignorer ces dossiers (comparaison sans tenir compte des majuscules) : `$recycle.bin`, `system volume information`, `windows`, `program files`, `program files (x86)`, `programdata`, `appdata`, `node_modules`, `__pycache__`, `.git`, `.svn`, `.venv`, `venv`, `.cache`.
+- Ignorer ces extensions : `.tmp`, `.temp`, `.lnk`, `.ini`, `.dll`, `.sys`, `.exe`, `.msi`, `.pyc`, `.pyo`, `.lock`, `.ds_store`, `.db`, `.dat`, `.crswap` (fichiers temporaires de Chrome).
+- Tous les autres fichiers sont indexés, au minimum par leur nom et leur dossier.
+- Un fichier ou un dossier illisible (droits insuffisants, fichier verrouillé, dossier système) est ignoré **silencieusement** : il ne doit jamais interrompre le parcours.
+
+## 6. Extraction du texte
+
+Pour chaque fichier, on extrait **au plus 500 caractères** de contenu, espaces normalisés. **Règle absolue : toute erreur d'extraction (fichier corrompu, protégé par mot de passe, format inattendu) donne un contenu vide, sans message, et le fichier est quand même indexé par son nom et son chemin.**
+
+| Format | Méthode | Contenu extrait |
+|---|---|---|
+| `.docx` | JSZip, lecture de `word/document.xml` ; fin de paragraphe et tabulation remplacées par un espace, balises retirées, entités XML décodées | Début du corps, tableaux compris |
+| `.xlsx` | JSZip : noms des feuilles dans `xl/workbook.xml`, chaînes partagées dans `xl/sharedStrings.xml`, cellules de `xl/worksheets/sheet1.xml` (sinon la première feuille trouvée), y compris les chaînes « inline » | `Feuilles : Budget, Notes \| ` suivi des 500 premiers caractères de la première feuille |
+| `.pdf` | pdf.js, texte de la **page 1** uniquement, avec `isEvalSupported: false` | Début de la page 1 ; un PDF scanné donne un contenu vide (pas d'OCR) |
+| `.txt`, `.md`, `.csv`, `.log` | Lecture des 2 000 premiers octets ; décodage UTF-8 strict, sinon Windows-1252 | 500 premiers caractères |
+| `.eml` | Analyse du message (voir ci-dessous) | En-têtes + début du corps |
+| Tous les autres | Aucune lecture | Nom et chemin seulement |
+
+- Au-delà de **100 Mo**, les `.docx`, `.xlsx` et `.pdf` ne sont pas ouverts : nom et chemin seulement.
+- **pdf.js depuis une page locale** : le navigateur refuse de lancer un worker hébergé sur un autre domaine. Télécharger le code du worker avec `fetch`, en faire un `Blob`, et passer son URL (`URL.createObjectURL`) à `GlobalWorkerOptions.workerSrc`. Fermer chaque document avec `destroy()`.
+
+**E-mails `.eml`** (sans bibliothèque) :
+- en-têtes `Subject`, `From`, `To`, `Date`, avec les lignes de continuation et les mots encodés (`=?charset?B?…?=` et `=?charset?Q?…?=`, y compris plusieurs mots encodés consécutifs) ; n'afficher que les en-têtes présents, sous la forme `Objet : … | De : … | À : … | Date : …`, limités à 400 caractères ;
+- corps : parcourir les parties `multipart/*` (profondeur maximale 8), ignorer les pièces jointes (`Content-Disposition: attachment`), décoder `base64` et `quoted-printable` selon le `charset` déclaré ; prendre la partie `text/plain`, sinon la partie `text/html` débarrassée de `script`, `style`, `head` et des balises ;
+- au-delà de **25 Mo** (grosses pièces jointes), ne lire que les 64 premiers Ko et seulement les en-têtes.
+
+**Texte encodé pour chaque fichier** (une seule ligne) :
+
+```
+passage: <nom lisible> (<extension>) | <dossier relatif> | <contenu extrait>
+```
+
+- Le nom lisible est le nom du fichier sans extension, où `_`, `-` et `.` sont remplacés par des espaces : `template_v3_final` devient `template v3 final`. Cela aide beaucoup le modèle.
+- Le dossier relatif est affiché avec des `\`.
+- Le préfixe `passage: ` est **obligatoire** : le modèle E5 a été entraîné ainsi.
+
+## 7. Modèle et recherche
+
+**Modèle** : `Xenova/multilingual-e5-small` (version ONNX de `intfloat/multilingual-e5-small`), 384 dimensions, multilingue, qui comprend nativement le français.
+- Le charger avec Transformers.js : `pipeline("feature-extraction", MODEL, …)`, avec `env.allowLocalModels = false`.
+- Si `navigator.gpu` existe, essayer d'abord la carte graphique (`device: "webgpu"`, `dtype: "fp32"`) et vérifier qu'un encodage d'essai fonctionne ; en cas d'échec, utiliser le processeur avec `dtype: "q8"` (version compressée, environ 120 Mo).
+- Encodage : `{ pooling: "mean", normalize: true }`. Les vecteurs étant normalisés, le produit scalaire égale la similarité cosinus.
+- Un seul chargement du modèle, même si plusieurs parties de la page le demandent en même temps.
+- **Un seul encodage à la fois** (file d'attente) : l'indexation et la recherche partagent le modèle.
+
+**Recherche** :
+- la requête est préfixée par `query: ` (**obligatoire**, comme `passage: `) ;
+- comparaison exhaustive avec tous les vecteurs de l'index, par produit scalaire, en gardant les 5 meilleurs. Pas besoin de bibliothèque d'index vectoriel : pour quelques dizaines de milliers de fichiers, c'est l'affaire de quelques millisecondes ;
+- si le modèle n'est pas encore chargé : « Le modèle est encore en cours de chargement. » ;
+- si aucun résultat : « Aucun fichier trouvé. Vérifiez que l'indexation est terminée ou reformulez la requête. »
+
+## 8. Résultats et ouverture des fichiers
+
+Chaque résultat est une carte avec :
+- le **nom du fichier**, cliquable ;
+- le **score** en pourcentage (arrondi), à droite ;
+- le **chemin complet** en petit et en gris : emplacement de la session + chemin relatif ;
+- un bouton « Copier le chemin » (qui affiche brièvement « Copié »).
+
+Tout texte issu des fichiers ou de leurs noms est **échappé** avant d'être inséré dans la page.
+
+**Chemin complet.**
+- Windows : emplacement `G`, `G:` ou `G:\` donne `G:\` ; un emplacement `G:\Dossiers` est accepté ; les `/` du chemin relatif deviennent des `\`.
+- Mac et Linux : un emplacement commençant par `/` est utilisé tel quel, avec des `/`.
+
+**Liens.** Un navigateur ne peut pas lancer une application lui-même ; deux mécanismes le permettent :
+- **Fichiers Office** (`.doc`, `.docx`, `.xls`, `.xlsx`, `.ppt`, `.pptx`) : protocoles Office, qui ouvrent le **fichier d'origine** (et non une copie téléchargée) après une confirmation, par exemple `ms-word:ofe|u|file:///G:/Clients/Dupont/devis%20final.docx`. Utiliser `ms-word`, `ms-excel` ou `ms-powerpoint` selon l'extension.
+- **Autres fichiers** : lien `file:///G:/…` (Windows) ou `file:///Volumes/…` (Mac, Linux), ouvert dans un nouvel onglet. Selon le type de fichier, le navigateur l'affiche (PDF) ou le télécharge.
+- Encoder chaque segment du chemin avec `encodeURIComponent`, sauf la lettre de lecteur (`G:`).
+- Si l'emplacement est vide, les noms ne sont pas cliquables et un message invite à le renseigner (« ex. G: ou /Volumes/veracrypt1 »). Le bouton « Copier le chemin » reste la solution de secours dans tous les cas.
+
+## 9. Interface
+
+De haut en bas :
+- le titre « Recherche sémantique » ;
+- une ligne de statut avec une pastille : verte (prêt), orange clignotante (travail en cours, sans animation si l'utilisateur a demandé à réduire les animations), rouge (erreur), grise (en attente). Messages : « Choisissez le volume à indexer. », « Chargement du modèle (téléchargement au premier usage)… », « Lecture de l'index… », « Analyse du volume… », « Indexation en cours… », « Index chargé — 18 956 fichiers indexés » ;
+- la zone de dépôt, puis, une fois le volume choisi, la ligne du volume, un grand champ de recherche centré (exemple : « Ex. : courrier de relance au client Dupont ») avec un bouton « Rechercher », le lien « Réindexer tout », et les résultats.
+
+## 10. Durée à annoncer honnêtement
+
+- Une page ouverte en local ne peut pas utiliser plusieurs cœurs du processeur pour le modèle (le navigateur réserve ce mode aux pages servies avec des en-têtes de sécurité particuliers). L'indexation tourne donc sur un seul cœur, sauf si la carte graphique prend le relais.
+- Mesure réelle sur un ordinateur ancien, sans carte graphique utilisée : environ **200 fichiers par minute**, soit **environ 1 h 30 pour 19 000 fichiers** à la première indexation.
+- Les ouvertures suivantes ne réencodent que les fichiers nouveaux ou modifiés ; le parcours du volume prend de quelques secondes à quelques minutes sur un disque externe.
+- La recherche elle-même prend moins de 2 secondes.
+- Ne promets dans l'interface aucune durée d'indexation ; affiche seulement le débit mesuré.
+
+## 11. Ce qu'il ne faut pas faire
+
+- Pas de serveur local, pas de Python, pas d'extension de navigateur.
+- Pas d'OCR, pas de grand modèle de langage, pas d'API en ligne.
+- Pas d'index stocké dans le navigateur, pas de chemin absolu dans l'index.
+- Pas de tentative de contourner les dossiers bloqués par Chrome.
+- Pas d'écriture dans le volume en dehors de `.recherche-semantique/`.
+- Ne pas casser l'indexation entière à cause d'un seul fichier.
+
+## 12. Livrable
+
+Donne-moi **le fichier complet**, `recherche-semantique.html`, d'un seul tenant, sans troncature ni « … reste du code inchangé ». Puis, en quelques lignes, la liste des vérifications à faire :
+
+1. Ouvrir le fichier dans Chrome : le statut indique « Choisissez le volume à indexer. ».
+2. Glisser un **petit dossier de fichiers fictifs** (une dizaine de `.docx`, `.pdf`, `.xlsx`, `.txt` et `.eml`), dont un fichier volontairement corrompu : l'indexation va au bout.
+3. Vérifier qu'un dossier `.recherche-semantique` contenant `index.json` et `vectors.bin` est apparu dans le dossier choisi.
+4. Chercher « modèle de courrier » : un fichier nommé par exemple `lettre_type.docx` doit sortir en tête.
+5. Cliquer sur un résultat Word : Word ouvre le fichier d'origine (vérifier son chemin dans Fichier > Informations).
+6. Fermer l'onglet, rouvrir le fichier HTML, redéposer le dossier : l'index se recharge et rien n'est réencodé.
+7. Modifier un fichier, en supprimer un autre, rouvrir : un seul fichier est réencodé, et le fichier supprimé n'apparaît plus.
+````
+
+</details>
 
 ## Sécurité et secret professionnel
 
